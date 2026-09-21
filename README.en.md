@@ -114,6 +114,20 @@ source row shows whether that request went **direct or through the proxy**.
 
 State lives in `$DSH_HOME/dsh-update-lens/{config,state}.json` (`$DSH_HOME` defaults to `~/.dsh`).
 
+## Screenshots
+
+| Overview | Breaking-change annotation |
+| --- | --- |
+| ![Update center overview](docs/screenshot-1-overview.png) | ![Breaking-change annotation](docs/screenshot-2-breaking.png) |
+
+| Full notes + "only flagged" | Sources and settings |
+| --- | --- |
+| ![Full release notes](docs/screenshot-3-notes.png) | ![Sources and settings](docs/screenshot-4-settings.png) |
+
+Captured on a real install (dsh `0.1.6-alpha.2`). The bottom-right **notification**
+shot can only be taken while a newer version actually exists; see
+[`docs/SCREENSHOTS.md`](docs/SCREENSHOTS.md) for the capture list.
+
 ## Tests
 
 ```sh

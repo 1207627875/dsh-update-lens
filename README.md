@@ -99,8 +99,16 @@ dist-tag 出现**降级陷阱**（例如 `latest` 指向比你已安装更低的
 
 ## 截图
 
-截图放在 [`docs/`](docs/)，截取清单见 [`docs/SCREENSHOTS.md`](docs/SCREENSHOTS.md)。
-右下角通知那一张要真的有新版本时才截得到。
+| 整页 | 破坏性变更标注 |
+| --- | --- |
+| ![更新中心整页](docs/screenshot-1-overview.png) | ![破坏性变更标注](docs/screenshot-2-breaking.png) |
+
+| 完整更新内容 + 只看风险项 | 网络来源与设置 |
+| --- | --- |
+| ![完整更新内容](docs/screenshot-3-notes.png) | ![网络来源与设置](docs/screenshot-4-settings.png) |
+
+截图取自真实运行环境（dsh `0.1.6-alpha.2`）。右下角**通知弹窗**那张要真的有新版本时才截得到，
+清单与截法见 [`docs/SCREENSHOTS.md`](docs/SCREENSHOTS.md)。
 
 ## 自测
 
@@ -137,6 +145,21 @@ node tests/mirror-probe.mjs      # GitHub 镜像可达性
 4. 报 `SyntaxError` 一律视为未完成，禁止跳过。
 
 `.gitattributes` 固定了文本文件的 eol，避免 Git 在平台间改写内容。
+
+## 常见问题
+
+**推送 / 克隆时报 `Connection was reset`？** 大陆网络直连 `github.com` 的 git 传输常被重置
+（`api.github.com` 一般仍可用，所以 `gh` 的 API 操作正常、只有 git 传输会断）。给 git 单独配代理即可：
+
+```sh
+git config --local http.proxy http://127.0.0.1:7890    # 换成你自己的代理端口
+```
+
+**浏览器打开 GitHub 显示「访问暂时受限」？** 那是 GitHub 对**出口 IP** 的防滥用拦截
+（页面会写明是哪个 IP）。换一个代理节点，或等它自行解除。
+
+**装完看不到「更新中心」？** Host 侧代码需要**重启 profile** 才会加载；客户端改动刷新页面即可。
+可以先 `curl http://127.0.0.1:3080/dsh-update-lens/status` 确认 Host 侧是否已起。
 
 ## 许可
 
