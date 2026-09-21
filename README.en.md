@@ -131,13 +131,33 @@ shot can only be taken while a newer version actually exists; see
 ## Tests
 
 ```sh
+node tests/secret-scan.mjs       # keys / tokens / credentials / personal paths, PNG text chunks, full git history
 node tests/encoding-check.mjs    # encoding guard: UTF-8 / BOM / mojibake / syntax
+node research/verify-remote.mjs  # ground truth: download the published tarball, SHA-256 every file, rescan it
 node tests/notes-rules.mjs       # annotation rules vs real release bodies (54 assertions)
 node tests/proxy-path.mjs        # direct / dead-proxy / live-proxy behaviour
 node tests/host-runtime.mjs      # version detection, downgrade trap, release notes
 node tests/host-smoke.mjs        # routes, same-origin guard, real network, disposal
 node tests/resolve-check.mjs     # install location: profile link, bundles list, client path
 ```
+
+## Privacy
+
+This repository contains **no keys, tokens, credentials, or personal paths** —
+and that is not a claim based on someone having looked at it:
+
+- `tests/secret-scan.mjs` scans three places: the working tree, **every blob in git
+  history** (something committed and later deleted still ships), and the **PNG text
+  chunks of the screenshots** (an image can carry tEXt/iTXt/EXIF metadata that no
+  amount of looking at the picture will reveal);
+- it also lists long random-looking strings for human review, so a custom-format
+  token that no known prefix matches still surfaces;
+- `research/verify-remote.mjs` downloads the **actually published** tarball,
+  compares every file's SHA-256 against the working tree, and runs the secret scan
+  again inside that copy — answering "what is on the remote", not "what I think I pushed".
+
+The plugin itself needs no credentials: it reads only the public npm registry and
+GitHub Releases.
 
 ## What it is not
 

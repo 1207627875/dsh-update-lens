@@ -113,7 +113,9 @@ dist-tag 出现**降级陷阱**（例如 `latest` 指向比你已安装更低的
 ## 自测
 
 ```sh
+node tests/secret-scan.mjs       # 隐私扫描：密钥/token/凭据/个人路径 + PNG 文本块 + git 全历史
 node tests/encoding-check.mjs    # 编码守卫：UTF-8 / BOM / 乱码 / 语法（每次批量改文件后必跑）
+node research/verify-remote.mjs  # 以远端为准：下载 tar 包，逐文件 SHA-256 比对 + 在远端副本上再扫一遍
 node tests/notes-rules.mjs       # 破坏性标注规则（真实正文 fixtures，54 条断言，含反向断言）
 node tests/proxy-path.mjs        # 直连 / 死代理 / 活代理三条路径的真实行为
 node tests/host-runtime.mjs      # 版本识别 + 降级告警 + 更新内容（离线时自动 skip）
@@ -122,6 +124,18 @@ node tests/resolve-check.mjs     # 安装位置自检：profile 链接、bundles
 node tests/net-probe.mjs         # npm / GitHub 可达性
 node tests/mirror-probe.mjs      # GitHub 镜像可达性
 ```
+
+## 隐私
+
+这个仓库里**没有任何密钥、token、凭据或个人路径**，而且不是靠"我看过了"来保证的：
+
+- `tests/secret-scan.mjs` 扫三处：工作区文本、**git 全历史的所有 blob**（提交过又删掉的东西照样会被翻出来）、
+  以及**截图的 PNG 文本块**（截图除了像素还可能带 tEXt/iTXt/EXIF 元数据，肉眼看图是看不出来的）；
+- 另外单独比对长随机串供人工复核，避免"只认已知前缀"的盲区；
+- `research/verify-remote.mjs` 下载 GitHub 上**实际发布的 tar 包**，解开来逐文件 SHA-256 比对，
+  并在远端副本上再跑一次隐私扫描 —— 回答的是"远端到底有什么"，而不是"我以为推了什么"。
+
+本插件也不需要任何密钥就能工作：它只读公开的 npm registry 与 GitHub Releases。
 
 ## 它不是什么（诚实说明）
 
