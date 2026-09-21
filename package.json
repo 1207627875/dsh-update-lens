@@ -1,0 +1,68 @@
+{
+  "name": "dsh-update-lens",
+  "version": "1.0.0",
+  "description": "Read-only update checker for DeepSeek Harness (dsh): version comparison across npm and GitHub, an in-app update notification, and breaking-change annotations on release notes.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "notes.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis-plugin",
+    "update-checker",
+    "release-notes",
+    "breaking-changes"
+  ],
+  "license": "MIT",
+  "author": "1207627875",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/1207627875/dsh-update-lens.git"
+  },
+  "homepage": "https://github.com/1207627875/dsh-update-lens#readme",
+  "bugs": {
+    "url": "https://github.com/1207627875/dsh-update-lens/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    }
+  },
+  "dsh": {
+    "engines": {
+      "dsh": ">=0.1.6-alpha.2"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    }
+  }
+}

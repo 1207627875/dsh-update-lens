@@ -1,0 +1,20 @@
+# Normalise line endings across platforms; never let Git rewrite content.
+* text=auto eol=lf
+
+# Explicit, so a checkout on any OS yields byte-identical sources.
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.md    text eol=lf
+
+# Binary assets must never be touched.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+
+# Keep the encoding audit inputs byte-exact too.
+tests/fixtures/*.json text eol=lf

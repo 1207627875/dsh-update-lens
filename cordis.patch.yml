@@ -1,0 +1,7 @@
+# dsh-update-lens bundle patch.
+# Mounts one row: the Host half serves the check routes under /dsh-update-lens,
+# the browser half (declared by package.json dsh.client) renders the Settings page
+# and the update notification. Read-only: it never installs or updates anything.
+- insert:
+    - id: update-center
+      name: dsh-update-lens

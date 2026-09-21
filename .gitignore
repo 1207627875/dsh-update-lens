@@ -1,0 +1,23 @@
+# Local runtime state (never publish): the plugin keeps these under $DSH_HOME/dsh-update-lens/
+config.json
+state.json
+
+# Test scratch
+tests/fixtures/*.local.json
+*.tmp
+
+# Forensics: kept locally as evidence of the 2026-09-21 encoding incident, never published
+*.corrupt.bak
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+*.swp
+.DS_Store
+
+# Node
+node_modules/
+npm-debug.log*
+pnpm-debug.log*
