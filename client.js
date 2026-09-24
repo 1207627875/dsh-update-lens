@@ -110,6 +110,11 @@ window.__ModuleLoader__.load({
       toastBody: '当前 {cur}，可升级到 {v}。升级命令请点“复制命令”。',
       copyCommand: '复制命令',
       dismiss: '忽略此版本',
+      ignoreVersion: '忽略',
+      ignoreHint: '把这个版本的卡片收起来（可随时恢复）',
+      ignoredLine: '已忽略 {n} 个版本的卡片',
+      restoreAll: '全部恢复',
+      notesUnavailableShort: '正文暂不可用（GitHub 不可达）',
       details: '查看详情',
       vpnHint: '版本号来自 npm registry，国内可直连；更新内容来自 GitHub Releases，若打不开 GitHub 请在上面配置本地代理或镜像。',
     };
@@ -194,6 +199,11 @@ window.__ModuleLoader__.load({
       toastBody: 'You run {cur}; {v} is out. Copy the update command and run it yourself.',
       copyCommand: 'Copy command',
       dismiss: 'Ignore this version',
+      ignoreVersion: 'Hide',
+      ignoreHint: 'Collapse this version’s card (restorable at any time)',
+      ignoredLine: '{n} version card(s) hidden',
+      restoreAll: 'Restore all',
+      notesUnavailableShort: 'Body unavailable (GitHub unreachable)',
       details: 'Details',
       vpnHint: 'Version numbers come from the npm registry (directly reachable in China); release bodies come from GitHub Releases — if GitHub is blocked, set a local proxy or mirror above.',
     };
@@ -281,6 +291,35 @@ window.__ModuleLoader__.load({
         });
         patch({ status: result.status ?? store.status, notice: 'saved' });
         notifyBadgeChanged();
+      } catch (error) {
+        patch({ error: describeError(error) });
+      }
+    }
+
+    /** Hide (or restore) one version's notes card; the Host owns the persisted list. */
+    async function setIgnored(version, ignored) {
+      try {
+        const result = await call('/ignore', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(ignored ? { version, ignored: true } : { version, ignored: false }),
+        });
+        if (result.status) patch({ status: result.status });
+        await loadStatus();
+      } catch (error) {
+        patch({ error: describeError(error) });
+      }
+    }
+
+    async function restoreIgnored() {
+      try {
+        const result = await call('/ignore', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ restoreAll: true }),
+        });
+        if (result.status) patch({ status: result.status });
+        await loadStatus();
       } catch (error) {
         patch({ error: describeError(error) });
       }
@@ -525,7 +564,7 @@ window.__ModuleLoader__.load({
     }
 
     function NotesCard(props) {
-      const { t, entry, lang, onToggleLang, keyBase, title, onlyRisk, onToggleRisk } = props;
+      const { t, entry, lang, onToggleLang, keyBase, title, onlyRisk, onToggleRisk, onIgnore, compact } = props;
       const blocks = blocksFor(entry, lang);
       const breaking = riskCount(blocks, 'breaking');
       const caution = riskCount(blocks, 'caution');
@@ -569,10 +608,19 @@ window.__ModuleLoader__.load({
               onClick: () => onToggleLang('en'),
             }, t('showEn')),
             entry.url ? h('a', { key: 'a', href: entry.url, target: '_blank', rel: 'noreferrer', style: { ...S.muted, textDecoration: 'underline' } }, t('openRelease')) : null,
+            onIgnore
+              ? h('button', {
+                key: 'x',
+                type: 'button',
+                style: S.button,
+                title: t('ignoreHint'),
+                onClick: () => onIgnore(entry.version),
+              }, t('ignoreVersion'))
+              : null,
           ]),
         ]),
         blocks.length === 0
-          ? h('div', { key: 'body', style: { ...S.muted, marginTop: '8px' } }, t('notesUnavailable'))
+          ? h('div', { key: 'body', style: { ...S.muted, marginTop: '8px' } }, compact ? t('notesUnavailableShort') : t('notesUnavailable'))
           : h('div', { key: 'body' }, [summaryRow, h('div', { key: 'blocks', style: { marginTop: '6px' } }, renderBlocks(visible, `${keyBase}-${entry.version}`, t))]),
       ]);
     }
@@ -832,6 +880,13 @@ window.__ModuleLoader__.load({
           status.notesAvailable === false
             ? h('div', { key: 'u', style: S.muted }, t('notesUnavailable'))
             : null,
+          (status.ignoredVersions ?? []).length > 0
+            ? h('div', { key: 'ig', style: { ...S.row, marginTop: '6px' } }, [
+              h('span', { key: 'l', style: S.muted }, interpolate(t('ignoredLine'), { n: status.ignoredVersions.length })),
+              h('span', { key: 'v', style: { ...S.muted, ...S.code } }, status.ignoredVersions.join(', ')),
+              h('button', { key: 'b', type: 'button', style: S.button, onClick: () => client.restoreIgnored() }, t('restoreAll')),
+            ])
+            : null,
           (status.notes ?? []).length === 0
             ? h('div', { key: 'e', style: S.muted }, t('notesEmpty'))
             : null,
@@ -843,6 +898,8 @@ window.__ModuleLoader__.load({
             onToggleLang: lang => patch({ noteLang: lang }),
             onlyRisk: snapshot.onlyRisk === true,
             onToggleRisk: value => patch({ onlyRisk: value }),
+            onIgnore: version => client.setIgnored(version, true),
+            compact: status.notesAvailable === false,
           })),
           status.currentRelease
             ? h('div', { key: 'cur', style: { marginTop: '10px' } }, [
@@ -945,7 +1002,7 @@ window.__ModuleLoader__.load({
       ctx.effect(() => ctx.locale.register(NS, 'zh', ZH), 'dsh-update-lens: zh dictionary');
       ctx.effect(() => ctx.locale.register(NS, 'en', EN), 'dsh-update-lens: en dictionary');
       const t = ctx.locale.bind(NS);
-      const client = { checkNow, saveConfig, dismiss };
+      const client = { checkNow, saveConfig, dismiss, setIgnored, restoreIgnored };
 
       // The section re-registers when the badge flips: the ledger bump is what
       // makes the shell re-read the nav label.

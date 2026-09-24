@@ -61,6 +61,12 @@ const DEFAULT_CONFIG = {
   notify: true,
   /** Version the user silenced the notification for. */
   dismissedVersion: '',
+  /**
+   * Versions whose release-notes card the user hid, so a long back-log of
+   * releases does not pile up in the page. Facts (versionsBehind, the update
+   * target) are unaffected — only the cards disappear, and restoring is one click.
+   */
+  ignoredVersions: [],
 };
 
 // ---------------------------------------------------------------------------
@@ -471,7 +477,26 @@ function publicConfig(config) {
     githubApiBase: config.githubApiBase,
     notify: config.notify,
     dismissedVersion: config.dismissedVersion,
+    ignoredVersions: [...config.ignoredVersions],
   };
+}
+
+/** A version string only ever needs to be a version; anything else is dropped. */
+const IGNORED_LIMIT = 100;
+const VERSION_MAX = 64;
+function sanitizeIgnored(value) {
+  if (!Array.isArray(value)) return null;
+  const out = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue;
+    const trimmed = entry.trim();
+    // Truncating a 200-character "version" would store a value that can never
+    // match a real release, so oversized junk is dropped rather than shortened.
+    if (trimmed === '' || trimmed.length > VERSION_MAX) continue;
+    if (!out.includes(trimmed)) out.push(trimmed);
+    if (out.length >= IGNORED_LIMIT) break;
+  }
+  return out;
 }
 
 function createChecker(logger) {
@@ -485,6 +510,8 @@ function createChecker(logger) {
     for (const key of Object.keys(DEFAULT_CONFIG)) {
       if (stored[key] !== undefined && typeof stored[key] === typeof DEFAULT_CONFIG[key]) config[key] = stored[key];
     }
+    // An array copied from disk is still untrusted input.
+    config.ignoredVersions = sanitizeIgnored(stored.ignoredVersions) ?? [];
   }
 
   const persisted = readJsonFile(stateFile);
@@ -583,6 +610,8 @@ function createChecker(logger) {
         .slice(0, 8);
 
     const byVersion = new Map(releases.map(release => [release.version, release]));
+    // Every newer version keeps a note here; hiding is a READ-time decision
+    // (see status()), so ignore/restore never needs a fresh network check.
     const notes = newerVersions.map(version => {
       const release = byVersion.get(version);
       const split = release === undefined ? { cn: '', en: '' } : splitReleaseBody(release.body);
@@ -710,10 +739,12 @@ function createChecker(logger) {
       // One shape for every branch: the client never has to defend against a
       // half-built payload while the first check is still running. `config` and
       // `proxy` are always the LIVE values — a stale snapshot must not make the
-      // settings form snap back to a value the user just changed.
+      // settings form snap back to a value the user just changed. The ignored
+      // filter is applied here too, so hiding or restoring a card takes effect
+      // immediately instead of waiting for the next network check.
       const live = { config: publicConfig(config), proxy: proxyView() };
-      if (snapshot === null) {
-        return {
+      const base = snapshot === null
+        ? {
           ...buildStatus({
             policy: live.proxy,
             registry: null,
@@ -722,12 +753,17 @@ function createChecker(logger) {
             checkedAt: null,
             trigger: null,
           }),
-          ...live,
           neverChecked: true,
-        };
-      }
-      if (inFlight !== null) return { ...snapshot, ...live, checking: true };
-      return { ...snapshot, ...live, checking: false };
+        }
+        : { ...snapshot, checking: inFlight !== null };
+      const ignored = new Set(config.ignoredVersions);
+      const allNotes = Array.isArray(base.notes) ? base.notes : [];
+      return {
+        ...base,
+        ...live,
+        notes: allNotes.filter(note => !ignored.has(note.version)),
+        ignoredVersions: allNotes.filter(note => ignored.has(note.version)).map(note => note.version),
+      };
     },
     updateConfig(patch) {
       const next = { ...config };
@@ -758,10 +794,40 @@ function createChecker(logger) {
         }
       }
       if (typeof patch.dismissedVersion === 'string') next.dismissedVersion = patch.dismissedVersion.slice(0, 64);
+      if (patch.ignoredVersions !== undefined) {
+        const list = sanitizeIgnored(patch.ignoredVersions);
+        if (list === null) throw new Error('ignoredVersions must be an array of version strings');
+        next.ignoredVersions = list;
+      }
       Object.assign(config, next);
       const saved = writeJsonFile(configFile, config);
       if (!saved) logger.warn('could not persist %s', configFile);
       return config;
+    },
+    /**
+     * Hide or restore one version's release-notes card.
+     *
+     * Ignoring the version that happens to be the update target also silences the
+     * notification for it: from the user's side "ignore" means "stop showing me
+     * this one", and doing only half of that would keep the toast coming back.
+     */
+    setIgnored(version, ignored) {
+      const target = typeof version === 'string' ? version.trim() : '';
+      if (target === '' || target.length > VERSION_MAX) throw new Error('a valid version is required');
+      const set = new Set(config.ignoredVersions);
+      if (ignored) set.add(target);
+      else set.delete(target);
+      const list = [...set].slice(0, IGNORED_LIMIT);
+      const patch = { ignoredVersions: list };
+      if (ignored && snapshot !== null && snapshot.target?.version === target) patch.dismissedVersion = target;
+      this.updateConfig(patch);
+      return { version: target, ignored, ignoredVersions: [...config.ignoredVersions] };
+    },
+    /** Bring every hidden card back. */
+    restoreIgnored() {
+      const count = config.ignoredVersions.length;
+      this.updateConfig({ ignoredVersions: [] });
+      return { restored: count };
     },
   };
 }
@@ -865,9 +931,29 @@ export function apply(ctx) {
           const rev = new URL(request.url ?? '/', 'http://localhost').searchParams.get('client');
           if (rev !== null) checker.noteClient(rev);
           try {
-            sendJson(response, 200, { ...(await checker.runCheck('manual')), client: checker.clientInfo() });
+            // Run the check, then answer with the filtered VIEW so hidden cards
+            // stay hidden on the manual path as well.
+            await checker.runCheck('manual');
+            sendJson(response, 200, { ...checker.status(), checking: false, client: checker.clientInfo() });
           } catch (error) {
             sendJson(response, 502, { error: error instanceof Error ? error.message : String(error) });
+          }
+        },
+      }),
+      ctx.webServer.register({
+        kind: 'exact',
+        path: `${ROUTE_PREFIX}/ignore`,
+        handler: async (request, response) => {
+          if (!methodGuard(request, response, 'POST')) return;
+          if (!sameOrigin(request)) return sendJson(response, 403, { error: 'same-origin request required' });
+          try {
+            const body = await readJsonBody(request);
+            const result = body.restoreAll === true
+              ? checker.restoreIgnored()
+              : checker.setIgnored(body.version, body.ignored !== false);
+            sendJson(response, 200, { ...result, config: publicConfig(checker.config), status: checker.status() });
+          } catch (error) {
+            sendJson(response, 400, { error: error instanceof Error ? error.message : String(error) });
           }
         },
       }),

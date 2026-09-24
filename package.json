@@ -1,6 +1,6 @@
 {
   "name": "dsh-update-lens",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Read-only update checker for DeepSeek Harness (dsh): version comparison across npm and GitHub, an in-app update notification, and breaking-change annotations on release notes.",
   "type": "module",
   "main": "index.js",

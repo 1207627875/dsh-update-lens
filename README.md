@@ -45,6 +45,10 @@ dsh 更新很频繁，而发布说明里混着「新增功能」和「某个包�
 规则不是拍脑袋定的：`tests/notes-rules.mjs` 用**真实 Release 正文**（`tests/fixtures/`）跑 54 条断言，
 其中相当一部分是「这些长得像的句子**不准**报警」的反向断言 —— 每一条都对应一个真的误报过的例子。
 
+**每张卡片可单独「忽略」**：版本多了列表不会一直堆下去。忽略只收起卡片，不影响「落后几个版本」这些事实；
+顶部会出现「已忽略 N 个版本 + 全部恢复」，随时可撤销。若被忽略的正好是你将要升级到的那个版本，它的通知也一并静音
+（否则按钮看起来会像坏的）。
+
 ## 安装
 
 ```sh
@@ -117,8 +121,9 @@ node tests/secret-scan.mjs       # 隐私扫描：密钥/token/凭据/个人路�
 node tests/encoding-check.mjs    # 编码守卫：UTF-8 / BOM / 乱码 / 语法（每次批量改文件后必跑）
 node research/verify-remote.mjs  # 以远端为准：下载 tar 包，逐文件 SHA-256 比对 + 在远端副本上再扫一遍
 node tests/notes-rules.mjs       # 破坏性标注规则（真实正文 fixtures，54 条断言，含反向断言）
+node tests/ignore-versions.mjs   # 每版「忽略 / 恢复」：持久化、可撤销、忽略目标版本时同静音通知
 node tests/proxy-path.mjs        # 直连 / 死代理 / 活代理三条路径的真实行为
-node tests/host-runtime.mjs      # 版本识别 + 降级告警 + 更新内容（离线时自动 skip）
+node tests/host-runtime.mjs      # 版本识别的**不变量**（不写死当天版本号；离线自动 skip）
 node tests/host-smoke.mjs        # 路由表、同源防护、真实网络、卸载清理
 node tests/resolve-check.mjs     # 安装位置自检：profile 链接、bundles 列表、客户端 bundle 路径
 node tests/net-probe.mjs         # npm / GitHub 可达性

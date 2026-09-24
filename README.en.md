@@ -56,6 +56,12 @@ The rules are not guesswork: `tests/notes-rules.mjs` runs 54 assertions against
 look-alike sentence must stay quiet" — each one corresponding to a false positive
 that actually happened.
 
+**Each card can be hidden on its own**, so a growing back-log of releases does not
+pile up. Hiding only collapses the card — the facts (how many versions behind, the
+update target) are unchanged — and a "N version cards hidden · Restore all" line
+appears at the top of the section. Hiding the version you would upgrade to also
+silences its notification, so the button never looks broken.
+
 ## Install
 
 ```sh
@@ -135,8 +141,9 @@ node tests/secret-scan.mjs       # keys / tokens / credentials / personal paths,
 node tests/encoding-check.mjs    # encoding guard: UTF-8 / BOM / mojibake / syntax
 node research/verify-remote.mjs  # ground truth: download the published tarball, SHA-256 every file, rescan it
 node tests/notes-rules.mjs       # annotation rules vs real release bodies (54 assertions)
+node tests/ignore-versions.mjs   # per-version hide/restore: persisted, reversible, silences the target's toast
 node tests/proxy-path.mjs        # direct / dead-proxy / live-proxy behaviour
-node tests/host-runtime.mjs      # version detection, downgrade trap, release notes
+node tests/host-runtime.mjs      # INVARIANTS of version detection (no hardcoded versions; skips offline)
 node tests/host-smoke.mjs        # routes, same-origin guard, real network, disposal
 node tests/resolve-check.mjs     # install location: profile link, bundles list, client path
 ```

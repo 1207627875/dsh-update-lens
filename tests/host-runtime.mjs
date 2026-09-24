@@ -61,22 +61,75 @@ for (const row of s.selectors) console.log('   ', row.id.padEnd(8), row.command)
 
 // Version detection is deterministic and must always hold; everything below it
 // depends on the network, so an offline run reports a skip instead of a failure.
+//
+// Upstream moves: this test asserts INVARIANTS of the plugin's logic, never the
+// versions that happen to be current today. An earlier version of it hardcoded
+// "latest == 0.1.5-rc.2" and started failing the moment npm published rc.3, which
+// said nothing about the plugin and everything about the test.
 const problems = [];
 const skipped = [];
-if (s.current.version !== '0.1.6-alpha.2') problems.push(`expected current 0.1.6-alpha.2, got ${s.current.version}`);
-if (s.current.channel !== 'alpha') problems.push(`expected channel alpha, got ${s.current.channel}`);
+
+const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+function parts(version) {
+  const m = SEMVER.exec(String(version));
+  return m === null ? null : { core: m[0].split('-')[0].split('.').map(Number), pre: m[0].includes('-') ? m[0].split('-')[1].split('.') : [] };
+}
+function compare(a, b) {
+  const x = parts(a);
+  const y = parts(b);
+  if (x === null || y === null) return null;
+  for (let i = 0; i < 3; i += 1) if (x.core[i] !== y.core[i]) return x.core[i] < y.core[i] ? -1 : 1;
+  if (x.pre.length === 0 || y.pre.length === 0) return x.pre.length === y.pre.length ? 0 : (x.pre.length === 0 ? 1 : -1);
+  for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i += 1) {
+    const p = x.pre[i];
+    const q = y.pre[i];
+    if (p === undefined) return -1;
+    if (q === undefined) return 1;
+    const pn = /^\d+$/.test(p);
+    const qn = /^\d+$/.test(q);
+    if (pn && qn && Number(p) !== Number(q)) return Number(p) < Number(q) ? -1 : 1;
+    if (pn !== qn) return pn ? -1 : 1;
+    if (p !== q) return p < q ? -1 : 1;
+  }
+  return 0;
+}
+
+if (!SEMVER.test(String(s.current.version))) problems.push(`installed version is not a semver: ${s.current.version}`);
+if (s.current.source === 'unknown') problems.push('the installed version was not detected from the running CLI');
+if (typeof s.current.channel !== 'string' || s.current.channel === 'unknown') problems.push(`installed channel not derived: ${s.current.channel}`);
 
 if (s.ok !== true) {
   skipped.push(`registry source unavailable — network-derived checks skipped (${s.sources.map(source => `${source.id}:${source.error}`).join(', ')})`);
 } else {
-  if (s.newestSameChannel !== '0.1.6-alpha.2') problems.push(`expected newestSameChannel 0.1.6-alpha.2, got ${s.newestSameChannel}`);
-  if (s.updateAvailable !== false) problems.push('expected updateAvailable=false (already newest in channel)');
-  if (!s.downgradeTags.some(entry => entry.tag === 'latest' && entry.version === '0.1.5-rc.2')) {
-    problems.push(`expected a latest-tag downgrade warning, got ${JSON.stringify(s.downgradeTags)}`);
+  // updateAvailable must equal "the target really is newer than what we run".
+  const cmp = compare(s.target.version, s.current.version);
+  if (cmp === null) problems.push(`target version is not comparable: ${s.target.version}`);
+  else if (s.updateAvailable !== (cmp > 0)) problems.push(`updateAvailable=${s.updateAvailable} disagrees with semver (target ${s.target.version} vs current ${s.current.version})`);
+
+  // versionsBehind counts exactly the newer versions it lists.
+  if (s.versionsBehind !== s.newerVersions.length) problems.push(`versionsBehind=${s.versionsBehind} but ${s.newerVersions.length} version(s) listed`);
+
+  // Every listed version must be newer, newest first.
+  for (const version of s.newerVersions) {
+    if ((compare(version, s.current.version) ?? 0) <= 0) problems.push(`newerVersions contains ${version}, which is not newer than ${s.current.version}`);
   }
+  const sorted = s.newerVersions.every((version, i) => i === 0 || (compare(s.newerVersions[i - 1], version) ?? 0) >= 0);
+  if (!sorted) problems.push(`newerVersions is not newest-first: ${s.newerVersions.join(', ')}`);
+
+  // A dist-tag pointing below the installed build is the trap we warn about; any
+  // entry reported must genuinely be lower, and `latest` being one of them is
+  // normal for an alpha install but not something to assert on.
+  for (const entry of s.downgradeTags) {
+    if ((compare(entry.version, s.current.version) ?? 0) >= 0) problems.push(`downgradeTags lists ${entry.tag}=${entry.version}, which is not below ${s.current.version}`);
+  }
+  console.log(`downgrade traps   : ${s.downgradeTags.length === 0 ? 'none today' : s.downgradeTags.map(entry => `${entry.tag}->${entry.version}`).join(', ')}`);
+
   if (s.notesAvailable !== true) skipped.push('release notes source unavailable — annotation skipped');
   else if (s.currentRelease === null) problems.push('expected release notes for the installed version');
   else if (typeof s.currentRelease.summary?.breaking !== 'number') problems.push('release notes carry no annotation summary');
+  else if (s.currentRelease.summary.breaking + s.currentRelease.summary.caution > s.currentRelease.summary.items) {
+    problems.push(`annotation counts exceed the bullet count (${JSON.stringify(s.currentRelease.summary)})`);
+  }
 }
 
 console.log('\n' + (problems.length === 0 ? 'ASSERTIONS PASS' : `ASSERTIONS FAIL:\n - ${problems.join('\n - ')}`));
