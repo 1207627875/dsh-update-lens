@@ -42,7 +42,17 @@ const REPO = 'deepseek-ai/deepseek-harness';
 const NPM_OFFICIAL = 'https://registry.npmjs.org/@deepseek-ai%2Fdsh';
 const NPM_MIRROR = 'https://registry.npmmirror.com/@deepseek-ai/dsh';
 const DEFAULT_GITHUB_API = 'https://api.github.com';
+/**
+ * Release-notes fallback for networks where api.github.com is blocked: ungh.cc is
+ * a read-only mirror of GitHub data. Its release bodies use the SAME format as the
+ * API (the `<h3 id="cn-…">` / `<h3 id="en-…">` anchors, the nav line, `###`
+ * headings), so the existing parser reads it unchanged — verified by
+ * research/probe-ungh.mjs.
+ */
+const UNGH_RELEASES = `https://ungh.cc/repos/${REPO}/releases`;
 const REQUEST_TIMEOUT_MS = 12_000;
+/** Release notes are optional, so they get a shorter deadline than the version check. */
+const NOTES_TIMEOUT_MS = 6_000;
 /** Local proxy ports worth probing: Clash, Clash Verge, v2rayN, mixed, and common fallbacks. */
 const PROXY_PORT_CANDIDATES = [7890, 7897, 7891, 10808, 10809, 1080, 8889, 8080, 20171, 2080, 33210];
 
@@ -325,10 +335,10 @@ function resolveProxyPolicy(config) {
   return { mode: 'direct', url: '', source: 'default', error: null };
 }
 
-async function fetchJson(url, policy) {
+async function fetchJson(url, policy, timeoutMs = REQUEST_TIMEOUT_MS) {
   const started = Date.now();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const init = {
       signal: controller.signal,
@@ -445,7 +455,7 @@ async function probeGithub(base, policy) {
     }
   })();
   const url = `${origin}/repos/${REPO}/releases?per_page=20`;
-  const result = await fetchJson(url, policy);
+  const result = await fetchJson(url, policy, NOTES_TIMEOUT_MS);
   const source = {
     id: 'github-releases',
     label: 'GitHub Releases',
@@ -462,6 +472,50 @@ async function probeGithub(base, policy) {
   const releases = readReleasePayload(result.body);
   if (releases.length === 0) return { source: { ...source, ok: false, error: 'no releases in payload' }, releases: [] };
   return { source, releases };
+}
+
+/** The same payload, through ungh.cc — used only when GitHub yields nothing. */
+async function probeUngh(policy) {
+  const result = await fetchJson(UNGH_RELEASES, policy, NOTES_TIMEOUT_MS);
+  const source = {
+    id: 'ungh-cc',
+    label: 'ungh.cc mirror (notes fallback)',
+    url: UNGH_RELEASES,
+    kind: 'notes',
+    ok: result.ok,
+    status: result.status,
+    ms: result.ms,
+    error: result.error,
+    note: result.note,
+    via: result.via,
+  };
+  if (!result.ok) return { source, releases: [] };
+  const releases = readUnghPayload(result.body);
+  if (releases.length === 0) return { source: { ...source, ok: false, error: 'no releases in payload' }, releases: [] };
+  return { source, releases };
+}
+
+/** ungh.cc uses its own field names; the body itself is already API-shaped. */
+function readUnghPayload(body) {
+  if (body === null || typeof body !== 'object' || !Array.isArray(body.releases)) return [];
+  const out = [];
+  for (const entry of body.releases) {
+    if (entry === null || typeof entry !== 'object') continue;
+    const tag = typeof entry.tag === 'string' ? entry.tag : '';
+    const version = tag.replace(/^dsh-v/, '').replace(/^v/, '');
+    if (parseVersion(version) === null) continue;
+    out.push({
+      version,
+      tag,
+      name: typeof entry.name === 'string' && entry.name !== '' ? entry.name : tag,
+      publishedAt: typeof entry.publishedAt === 'string' ? entry.publishedAt : (typeof entry.createdAt === 'string' ? entry.createdAt : null),
+      // ungh.cc carries no html_url; the canonical release page is derivable.
+      url: `https://github.com/${REPO}/releases/tag/${tag}`,
+      prerelease: entry.prerelease === true,
+      body: typeof entry.markdown === 'string' ? entry.markdown : '',
+    });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -565,14 +619,28 @@ function createChecker(logger) {
         registry = mirror.data;
       }
 
+      // Release notes: GitHub first (authoritative), and only when it yields
+      // nothing do we bother the third-party mirror. The mirror is never queried
+      // on a healthy GitHub, so it stays a fallback rather than a dependency.
       const github = await probeGithub(config.githubApiBase, policy);
       sources.push(github.source);
+      let releases = github.releases;
+      let notesFrom = github.source.ok ? github.source : null;
+      if (releases.length === 0) {
+        const ungh = await probeUngh(policy);
+        sources.push(ungh.source);
+        if (ungh.releases.length > 0) {
+          releases = ungh.releases;
+          notesFrom = ungh.source;
+        }
+      }
 
       const result = buildStatus({
         policy: proxyState,
         registry,
         sources,
-        releases: github.releases,
+        releases,
+        notesFrom,
         checkedAt: startedAt,
         trigger,
       });
@@ -585,7 +653,7 @@ function createChecker(logger) {
     return inFlight;
   }
 
-  function buildStatus({ policy, registry, sources, releases, checkedAt, trigger }) {
+  function buildStatus({ policy, registry, sources, releases, notesFrom = null, checkedAt, trigger }) {
     const current = runtime.version;
     const currentChannel = current === null ? 'unknown' : channelOf(current);
     const publishedVersions = registry === null ? [] : registry.versions.map(entry => entry.version);
@@ -633,8 +701,11 @@ function createChecker(logger) {
         .filter(([, version]) => (compareVersions(version, current) ?? 0) < 0)
         .map(([tag, version]) => ({ tag, version }));
 
-    const notesSource = sources.find(source => source.kind === 'notes');
+    // Whichever notes source actually produced the bodies (GitHub, or the mirror).
+    const notesSource = notesFrom ?? sources.find(source => source.kind === 'notes' && source.ok) ?? null;
     const registryOk = sources.some(source => source.kind === 'registry' && source.ok);
+    /** What the browser half may rely on — a client can be newer than the Host. */
+    const features = ['ignore'];
 
     // The release note of the build actually running, so the page can answer
     // "what am I on?" as well as "what is newer?".
@@ -674,6 +745,9 @@ function createChecker(logger) {
       notes,
       currentRelease,
       notesAvailable: notesSource?.ok === true,
+      /** Which source the bodies came from, so the page can say so. */
+      notesSourceId: notesSource?.id ?? null,
+      features,
       channels: {
         current: currentChannel,
         distTags,

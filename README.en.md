@@ -62,6 +62,11 @@ update target) are unchanged — and a "N version cards hidden · Restore all" l
 appears at the top of the section. Hiding the version you would upgrade to also
 silences its notification, so the button never looks broken.
 
+> Two different buttons, deliberately: **Hide** on a card collapses that card
+> (restorable); **Mute** in the bottom-right notification silences only the
+> notification and leaves the card — the card carries the pre-upgrade
+> breaking-change warning, which muting should not quietly take away.
+
 ## Install
 
 ```sh
@@ -93,6 +98,14 @@ Requires dsh `>= 0.1.6-alpha.2` (the only version this was tested on) and Node `
 | `registry.npmjs.org` | versions, dist-tags, publish times | primary |
 | `registry.npmmirror.com` | same | fallback when the primary fails |
 | `api.github.com/.../releases` | **release notes** | replaceable with a mirror you trust |
+| `ungh.cc` (third-party mirror) | **release notes** | queried only when GitHub yields no bodies; same body format |
+
+**Release notes no longer hinge on GitHub alone**: when GitHub returns no bodies the
+check falls back to `ungh.cc`, a read-only mirror of GitHub data whose release
+bodies use the same format (the parser is reused unchanged). The page says
+"bodies came from the ungh.cc mirror" when that happens. A healthy GitHub means the
+mirror is **never** contacted — it is a fallback, not a second dependency. If you
+would rather not use it at all, point "GitHub API base" at your own mirror.
 
 Comparison is real semver (including `alpha.2 < alpha.10` and
 `0.1.6 > 0.1.6-alpha.2`). The default follows the channel you installed from;
@@ -142,6 +155,8 @@ node tests/encoding-check.mjs    # encoding guard: UTF-8 / BOM / mojibake / synt
 node research/verify-remote.mjs  # ground truth: download the published tarball, SHA-256 every file, rescan it
 node tests/notes-rules.mjs       # annotation rules vs real release bodies (54 assertions)
 node tests/ignore-versions.mjs   # per-version hide/restore: persisted, reversible, silences the target's toast
+node tests/client-rev.mjs        # client revision lock: edit client.js, bump CLIENT_REV
+node tests/notes-fallback.mjs    # notes without GitHub: dead GitHub base, mirror takes over, mirror unused when GitHub works
 node tests/proxy-path.mjs        # direct / dead-proxy / live-proxy behaviour
 node tests/host-runtime.mjs      # INVARIANTS of version detection (no hardcoded versions; skips offline)
 node tests/host-smoke.mjs        # routes, same-origin guard, real network, disposal

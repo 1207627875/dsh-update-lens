@@ -49,6 +49,9 @@ dsh 更新很频繁，而发布说明里混着「新增功能」和「某个包�
 顶部会出现「已忽略 N 个版本 + 全部恢复」，随时可撤销。若被忽略的正好是你将要升级到的那个版本，它的通知也一并静音
 （否则按钮看起来会像坏的）。
 
+> 注意区分两个按钮：**卡片上的「忽略」= 收起这张卡片**（可恢复）；**右下角通知里的「不再提醒」= 只静音那条通知**，
+> 卡片会留着 —— 因为卡片上有升级前的破坏性变更警告，静音通知不应该顺手把它藏掉。
+
 ## 安装
 
 ```sh
@@ -78,6 +81,11 @@ dsh plugin --profile web add github:1207627875/dsh-update-lens
 | `registry.npmjs.org` | 版本号、dist-tags、发布时间 | 主源；国内可直连 |
 | `registry.npmmirror.com` | 同上 | 主源失败时的备用 |
 | `api.github.com/.../releases` | **更新内容** | 可换成你自己信任的镜像前缀 |
+| `ungh.cc`（第三方镜像） | **更新内容** | 仅当 GitHub 取不到正文时才请求；正文格式与 API 同构，解析复用 |
+
+**"更新内容"不再单点依赖 GitHub**：GitHub 取不到正文时自动改用 `ungh.cc`（GitHub 数据的只读镜像，
+正文格式与 API 一致），页面会明确标注「正文来自 ungh.cc 镜像」。GitHub 正常时**不会**请求该镜像 —— 它是兜底，不是第二个依赖。
+若你连这个镜像也不想用，可在设置里把「GitHub API 地址」指向自己的镜像；两者都失败时页面照旧明确显示原因。
 
 判定按 semver 比较（含 `alpha.2 < alpha.10`、`0.1.6 > 0.1.6-alpha.2` 这类预发布规则）。
 默认「跟随当前通道」——你装的是 `alpha` 就只盯 alpha；也可切成「任意通道最新版」。
@@ -122,6 +130,8 @@ node tests/encoding-check.mjs    # 编码守卫：UTF-8 / BOM / 乱码 / 语法�
 node research/verify-remote.mjs  # 以远端为准：下载 tar 包，逐文件 SHA-256 比对 + 在远端副本上再扫一遍
 node tests/notes-rules.mjs       # 破坏性标注规则（真实正文 fixtures，54 条断言，含反向断言）
 node tests/ignore-versions.mjs   # 每版「忽略 / 恢复」：持久化、可撤销、忽略目标版本时同静音通知
+node tests/client-rev.mjs        # 客户端版本锁：改了 client.js 就必须升 CLIENT_REV（否则页面自报的版本会骗人）
+node tests/notes-fallback.mjs    # 「更新内容不依赖 GitHub」：把 GitHub 指到死地址，验证镜像接管且不被滥用
 node tests/proxy-path.mjs        # 直连 / 死代理 / 活代理三条路径的真实行为
 node tests/host-runtime.mjs      # 版本识别的**不变量**（不写死当天版本号；离线自动 skip）
 node tests/host-smoke.mjs        # 路由表、同源防护、真实网络、卸载清理

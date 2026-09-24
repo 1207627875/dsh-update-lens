@@ -25,7 +25,7 @@ window.__ModuleLoader__.load({
      * "is the open page running the current client bundle or a stale one?" has
      * an answer that does not depend on guesswork. Bump on every client change.
      */
-    const CLIENT_REV = '1.0.1';
+    const CLIENT_REV = '1.0.2';
 
     // ---------------------------------------------------------------------
     // text
@@ -109,7 +109,12 @@ window.__ModuleLoader__.load({
       newVersionToast: 'DSH 有新版本 {v}',
       toastBody: '当前 {cur}，可升级到 {v}。升级命令请点“复制命令”。',
       copyCommand: '复制命令',
-      dismiss: '忽略此版本',
+      dismiss: '不再提醒',
+      dismissHint: '只静音这条通知；要收起「更新内容」里的卡片，请按那张卡片上的「忽略」',
+      actionFailed: '操作失败：',
+      restartHint: '页面已经是新版，但 Host 侧还在跑旧代码 —— 重启 profile 后这个按钮就会生效（客户端会热更新，Host 不会）。',
+      ignoreNeedsRestart: 'Host 侧版本较旧：重启 profile 后，每张卡片上才会出现「忽略」按钮。',
+      notesViaMirror: '正文来自 ungh.cc 镜像（GitHub 本次不可达）。',
       ignoreVersion: '忽略',
       ignoreHint: '把这个版本的卡片收起来（可随时恢复）',
       ignoredLine: '已忽略 {n} 个版本的卡片',
@@ -198,7 +203,12 @@ window.__ModuleLoader__.load({
       newVersionToast: 'DSH {v} is available',
       toastBody: 'You run {cur}; {v} is out. Copy the update command and run it yourself.',
       copyCommand: 'Copy command',
-      dismiss: 'Ignore this version',
+      dismiss: 'Mute',
+      dismissHint: 'Silences this notification only; to collapse a release-notes card, use the Hide button on that card.',
+      actionFailed: 'Action failed: ',
+      restartHint: 'This page is newer than its Host — the browser half hot-reloads, the Host does not. Restart the profile and the button will work.',
+      ignoreNeedsRestart: 'This Host is older: the per-card Hide button appears after you restart the profile.',
+      notesViaMirror: 'Bodies came from the ungh.cc mirror (GitHub was unreachable this time).',
       ignoreVersion: 'Hide',
       ignoreHint: 'Collapse this version’s card (restorable at any time)',
       ignoredLine: '{n} version card(s) hidden',
@@ -216,6 +226,8 @@ window.__ModuleLoader__.load({
     let store = {
       status: null,
       error: null,
+      /** True when the failure looks like "this Host is older than this page". */
+      errorRestart: false,
       busy: false,
       noteLang: 'cn',
       onlyRisk: false,
@@ -247,10 +259,24 @@ window.__ModuleLoader__.load({
       try {
         body = await response.json();
       } catch {
-        throw new Error(`HTTP ${response.status}`);
+        const error = new Error(`HTTP ${response.status}`);
+        // The browser half is hot-reloaded but the Host needs a restart, so a
+        // page newer than its Host is a normal state — say so instead of leaving
+        // an unexplained failure.
+        error.restartRequired = response.status === 404 || response.status === 405;
+        throw error;
       }
-      if (!response.ok) throw new Error(body?.error ?? `HTTP ${response.status}`);
+      if (!response.ok) {
+        const error = new Error(body?.error ?? `HTTP ${response.status}`);
+        error.restartRequired = response.status === 404 || response.status === 405;
+        throw error;
+      }
       return body;
+    }
+
+    /** One place to record a failure, so no call site forgets the restart hint. */
+    function reportError(error) {
+      patch({ error: describeError(error), errorRestart: error?.restartRequired === true });
     }
 
     async function loadStatus() {
@@ -264,7 +290,7 @@ window.__ModuleLoader__.load({
         patch({ status, error: null });
         if (badgeChanged) notifyBadgeChanged();
       } catch (error) {
-        patch({ error: describeError(error) });
+        reportError(error);
       }
     }
 
@@ -278,7 +304,8 @@ window.__ModuleLoader__.load({
         patch({ status, error: null, busy: false });
         notifyBadgeChanged();
       } catch (error) {
-        patch({ error: describeError(error), busy: false });
+        patch({ busy: false });
+        reportError(error);
       }
     }
 
@@ -292,7 +319,7 @@ window.__ModuleLoader__.load({
         patch({ status: result.status ?? store.status, notice: 'saved' });
         notifyBadgeChanged();
       } catch (error) {
-        patch({ error: describeError(error) });
+        reportError(error);
       }
     }
 
@@ -307,7 +334,7 @@ window.__ModuleLoader__.load({
         if (result.status) patch({ status: result.status });
         await loadStatus();
       } catch (error) {
-        patch({ error: describeError(error) });
+        reportError(error);
       }
     }
 
@@ -321,7 +348,7 @@ window.__ModuleLoader__.load({
         if (result.status) patch({ status: result.status });
         await loadStatus();
       } catch (error) {
-        patch({ error: describeError(error) });
+        reportError(error);
       }
     }
 
@@ -336,7 +363,7 @@ window.__ModuleLoader__.load({
         patch({ status: store.status ? { ...store.status, config: { ...store.status.config, dismissedVersion: version } } : null });
         notifyBadgeChanged();
       } catch (error) {
-        patch({ error: describeError(error) });
+        reportError(error);
       }
     }
 
@@ -649,6 +676,8 @@ window.__ModuleLoader__.load({
 
       const config = status.config ?? {};
       const dismissing = config.dismissedVersion === status.target?.version;
+      /** A Host that predates a feature simply does not advertise it. */
+      const canIgnore = Array.isArray(status.features) && status.features.includes('ignore');
       const showToastWorthy = status.updateAvailable && !dismissing;
       const headline = status.updateAvailable
         ? pill(status.ok ? 'warn' : 'fail', status.versionsBehind > 1 ? interpolate(t('updateAvailableCount'), { n: status.versionsBehind }) : t('updateAvailable'))
@@ -659,7 +688,7 @@ window.__ModuleLoader__.load({
           const result = await call('/proxy-probe', { cache: 'no-store' });
           setProbes(Array.isArray(result.candidates) ? result.candidates : []);
         } catch (error) {
-          patch({ error: describeError(error) });
+          reportError(error);
         }
       };
 
@@ -792,7 +821,6 @@ window.__ModuleLoader__.load({
           ]),
         ]),
         snapshot.notice === 'saved' ? h('div', { key: 'notice', style: { ...S.muted, marginTop: '6px' } }, t('saved')) : null,
-        snapshot.error ? h('div', { key: 'error', style: { ...S.muted, marginTop: '6px', color: 'var(--dsw-alias-state-error-primary)' } }, snapshot.error) : null,
       ]);
 
       return h('div', { style: S.page }, [
@@ -812,6 +840,20 @@ window.__ModuleLoader__.load({
             `${t('lastChecked')}: ${status.checkedAt ? formatTime(status.checkedAt) : t('neverChecked')} · ${t('vpnHint')}`),
           h('div', { key: 'r3', style: { ...S.muted, marginTop: '4px' } }, t('subtitle')),
         ]),
+
+        snapshot.error ? h('div', {
+          key: 'err',
+          style: {
+            ...S.riskBanner,
+            borderColor: 'var(--dsw-alias-state-error-primary)',
+            background: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent)',
+            color: 'var(--dsw-alias-state-error-primary)',
+            display: 'block',
+          },
+        }, [
+          h('div', { key: 'm', style: { fontWeight: 600 } }, t('actionFailed') + snapshot.error),
+          snapshot.errorRestart ? h('div', { key: 'r', style: { marginTop: '4px' } }, t('restartHint')) : null,
+        ]) : null,
 
         h('div', { key: 'grid', style: S.grid }, [
           h('div', { key: 'cur', style: S.cell }, [
@@ -880,6 +922,14 @@ window.__ModuleLoader__.load({
           status.notesAvailable === false
             ? h('div', { key: 'u', style: S.muted }, t('notesUnavailable'))
             : null,
+          status.notesSourceId === 'ungh-cc'
+            ? h('div', { key: 'src', style: { ...S.muted, marginTop: '4px' } }, t('notesViaMirror'))
+            : null,
+          // A page newer than its Host must not offer a button the Host cannot
+          // serve: say why it is missing instead of failing on click.
+          !canIgnore
+            ? h('div', { key: 'nr', style: { ...S.muted, marginTop: '4px' } }, t('ignoreNeedsRestart'))
+            : null,
           (status.ignoredVersions ?? []).length > 0
             ? h('div', { key: 'ig', style: { ...S.row, marginTop: '6px' } }, [
               h('span', { key: 'l', style: S.muted }, interpolate(t('ignoredLine'), { n: status.ignoredVersions.length })),
@@ -898,7 +948,7 @@ window.__ModuleLoader__.load({
             onToggleLang: lang => patch({ noteLang: lang }),
             onlyRisk: snapshot.onlyRisk === true,
             onToggleRisk: value => patch({ onlyRisk: value }),
-            onIgnore: version => client.setIgnored(version, true),
+            onIgnore: canIgnore ? version => client.setIgnored(version, true) : null,
             compact: status.notesAvailable === false,
           })),
           status.currentRelease
@@ -990,7 +1040,7 @@ window.__ModuleLoader__.load({
         h('div', { key: 'a', style: { ...S.row, marginTop: '9px', justifyContent: 'flex-end' } }, [
           h('button', { key: 'copy', type: 'button', style: S.buttonPrimary, onClick: copy }, t('copyCommand')),
           h('button', { key: 'hide', type: 'button', style: S.button, onClick: () => setHidden(true) }, t('cancel')),
-          h('button', { key: 'dismiss', type: 'button', style: S.button, onClick: () => dismiss(target) }, t('dismiss')),
+          h('button', { key: 'dismiss', type: 'button', style: S.button, title: t('dismissHint'), onClick: () => dismiss(target) }, t('dismiss')),
         ]),
       ]);
     }
