@@ -80,13 +80,29 @@ if (found.length === 0) {
   process.exit(0);
 }
 
-console.log(`\n${found.length} file(s) worth fixing:`);
-for (const item of found) {
-  console.log(`\n  ${item.path}`);
-  console.log(`    size ${item.size}B   modified ${item.mtime.toISOString()}`);
-  console.log(`    ${item.bom ?? 'no BOM'}${item.mojibakeLine === null ? '' : `   mojibake on line ${item.mojibakeLine}`}`);
-  console.log(`    first line: ${JSON.stringify(item.firstLine.slice(0, 40))}`);
+// A BOM means opposite things per extension, and conflating them makes the tool
+// cry wolf: Windows PowerShell 5.1 reads a BOM-less UTF-8 .ps1 as ANSI, so a .ps1
+// BOM is CORRECT and must be left alone; cmd.exe reads a .cmd as ANSI, so a .cmd
+// BOM is a bug.
+const broken = found.filter(item => item.mojibakeLine !== null || !/\.ps1$/i.test(item.path));
+const expected = found.filter(item => !broken.includes(item));
+
+if (broken.length > 0) {
+  console.log(`\n${broken.length} file(s) to fix (a .cmd/.bat BOM makes cmd.exe print "锘緼ECHO off"):`);
+  for (const item of broken) {
+    console.log(`\n  ${item.path}`);
+    console.log(`    size ${item.size}B   modified ${item.mtime.toISOString()}`);
+    console.log(`    ${item.bom ?? 'no BOM'}${item.mojibakeLine === null ? '' : `   mojibake on line ${item.mojibakeLine}`}`);
+    console.log(`    first line: ${JSON.stringify(item.firstLine.slice(0, 40))}`);
+  }
+  console.log('\nFix: strip the leading BOM bytes, then relaunch. A regenerated shim');
+  console.log('(npm install -g / a version manager) can bring it back, so re-run this after upgrades.');
 }
-console.log('\nFix: strip the BOM (and re-save as UTF-8 without BOM, or ANSI for .cmd),');
-console.log('then relaunch. Note a regenerated shim (npm install / a version manager) can bring it back.');
-process.exitCode = 1;
+
+if (expected.length > 0) {
+  console.log(`\n${expected.length} file(s) with a BOM that should STAY (PowerShell 5.1 needs it to read UTF-8 correctly):`);
+  for (const item of expected) console.log(`  ok  ${item.path}`);
+}
+
+console.log('\n' + (broken.length === 0 ? 'SHIM SCAN PASS (only expected .ps1 BOMs)' : 'SHIM SCAN FAIL'));
+process.exitCode = broken.length === 0 ? 0 : 1;

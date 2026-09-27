@@ -153,6 +153,22 @@ node research/scan-shim-encoding.mjs  # 扫 .cmd/.bat/.ps1 的 BOM 与乱码（�
 node research/capture-fixtures.mjs --refresh  # 用宿主的清洗逻辑重抓真实发布说明 fixtures
 ```
 
+**升级 DSH 或换插件之后，跑这一条体检**（检查控制台代码页、本机 PowerShell 写文件是否带 BOM、启动脚本有没有被塞 BOM、本仓库编码守卫、以及运行中实例）：
+
+```sh
+node research/doctor.mjs && node tests/live-verify.mjs
+```
+
+踩过的两个环境坑（本机实测，非推测）：
+
+- **Windows PowerShell 5.1 的 `Set-Content -Encoding UTF8` 会写入 BOM**。所以 `-Encoding UTF8` 并不等于"安全的 UTF-8"：
+  - `.ps1` 带 BOM 是**对的**（5.1 读无 BOM 的 UTF-8 会按 ANSI 解，正是乱码事故的成因），
+  - `.cmd` / `.bat` / `.js` / `.json` / `.md` 带 BOM 是**错的**（`.cmd` 会让 `cmd.exe` 打印 `锘緼ECHO off`；`.json` 带 BOM 会让 `JSON.parse` 直接失败）。
+  - 结论：**含中文的文件尽量只用 Node 写**（`fs.writeFileSync(p, s, 'utf8')`）；PS 5.1 里非写不可时用
+    `[System.IO.File]::WriteAllText($p, $s, (New-Object System.Text.UTF8Encoding $false))`。
+- **启动脚本是生成物**：`npm i -g` 或版本管理器会重新生成 `dsh.cmd`，BOM 可能再次出现。所以"修一次"不等于"永久修好"——每次升级后再跑一次体检。
+- 控制台代码页为 936（GBK）时，**编码正确的文件在控制台里也可能看起来是乱码**；先用 `chcp 65001` 再看，别急着改文件。
+
 ## 隐私
 
 这个仓库里**没有任何密钥、token、凭据或个人路径**，而且不是靠"我看过了"来保证的：
