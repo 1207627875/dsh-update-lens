@@ -33,7 +33,16 @@ function levelOf(blocks, needle) {
 const dir = new URL('./fixtures/', import.meta.url);
 const fixtures = readdirSync(dir)
   .filter(name => name.endsWith('.json'))
-  .map(name => JSON.parse(readFileSync(new URL(name, dir), 'utf8')));
+  .map(name => {
+    const raw = readFileSync(new URL(name, dir), 'utf8');
+    try {
+      return JSON.parse(raw);
+    } catch {
+      // A truncated fixture means an interrupted capture, not a rule failure.
+      console.log(`fixture ${name} is not valid JSON (${raw.length} bytes) — re-run research/capture-fixtures.mjs`);
+      process.exit(1);
+    }
+  });
 assert(fixtures.length >= 2, `expected at least 2 fixtures, found ${fixtures.length}`);
 
 const alpha2 = fixtures.find(fixture => fixture.tag === 'dsh-v0.1.6-alpha.2');
@@ -83,6 +92,43 @@ if (alpha1 !== undefined) {
   assert(levelOf(cn, '新增 image offload 会话事件') === null, 'cn: a new session event must not be flagged');
   assert(levelOf(en, 'Add an image offload session event') === null, 'en: a new session event must not be flagged');
   assert(levelOf(cn, '支持随请求上报会话事件，当前实验性开启，可通过配置关闭') === null, 'cn: an opt-out experiment must not be flagged');
+}
+
+// 0.1.7-rc.2 introduced a NEW note format: emoji headings and the first section
+// labelled by a bare line with no markdown marker. Missing that label loses the
+// section context, which is what the noise control depends on — so both the label
+// detection and the section semantics are pinned here.
+const rc2 = fixtures.find(fixture => fixture.tag === 'dsh-v0.1.7-rc.2');
+assert(rc2 !== undefined, 'fixture dsh-v0.1.7-rc.2 is missing');
+if (rc2 !== undefined) {
+  const cn = blocksOf(rc2, 'cn');
+  const headings = cn.filter(block => block.kind === 'heading').map(block => block.text);
+  assert(headings.includes('✨ 新增'), `the bare section label must be a heading, got: ${JSON.stringify(headings)}`);
+  assert(headings.some(text => text.includes('调整')), 'the ⚠️ 调整 section must be recognised');
+  assert(cn.filter(block => block.level === 'breaking').every(block => block.section !== ''), 'a flagged bullet must know its section');
+
+  // ⚠️ 调整 keeps the full rules: this is where breakage hides.
+  assert(levelOf(cn, '原独立模式选择开关移除') === 'breaking', 'cn: a removal in 调整 must be breaking');
+  assert(levelOf(cn, 'Inspector 不再默认提供') === 'breaking', 'cn: "no longer provided by default" must be breaking');
+
+  // Sections about additions and fixes stay quiet — even when a scary word appears.
+  assert(levelOf(cn, '纯新增或纯删除的差异展示更紧凑') === null, 'cn: "pure deletion in a diff" is prose inside 优化, not a removal');
+  assert(levelOf(cn, '修复部分插件详情和设置页无法正常显示插件信息') === null, 'cn: a fix that mentions 无法 must stay quiet');
+  // "不兼容插件…" names a category; only a change verb makes it a finding.
+  assert(levelOf(cn, '不兼容插件的跳过提示每次启动只显示一次') === 'caution', 'cn: a bare 不兼容 inside 优化 is a caution, not a break');
+
+  // The oldest fixture carries HTML headings split across two lines
+  // (`<h3>新增功能` / `</h3>`) instead of markdown; the tags must be stripped so
+  // the section name is clean text, and the sections must still take effect.
+  const ancient = fixtures.find(fixture => fixture.tag === 'dsh-v0.1.3-alpha.2');
+  if (ancient !== undefined) {
+    const blocks = blocksOf(ancient, 'cn');
+    const headings = blocks.filter(block => block.kind === 'heading').map(block => block.text);
+    assert(headings.length > 0, 'the 0.1.3 fixture has HTML headings and they must be recognised');
+    assert(headings.every(text => !text.includes('<') && !text.includes('>')), `HTML tags must be stripped from headings, got ${JSON.stringify(headings)}`);
+    assert(headings.some(text => text.includes('新增功能')), `expected a 新增功能 section, got ${JSON.stringify(headings)}`);
+    assert(blocks.some(block => block.kind === 'item'), 'the 0.1.3 fixture must still yield bullets');
+  }
 }
 
 // --- structural properties that must hold on every fixture ---

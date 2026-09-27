@@ -51,10 +51,22 @@ filter; when the version you would upgrade to carries breaking changes, a red ba
 appears **above** the copyable command (the warning must be read before the line
 you paste into a terminal).
 
-The rules are not guesswork: `tests/notes-rules.mjs` runs 54 assertions against
-**real release bodies** (`tests/fixtures/`), many of them negative — "this
-look-alike sentence must stay quiet" — each one corresponding to a false positive
-that actually happened.
+The rules are not guesswork: `tests/notes-rules.mjs` runs **271 assertions** against
+**18 real release bodies** (`tests/fixtures/`, captured from v0.1.0 through
+v0.1.7-rc.2), many of them negative — "this look-alike sentence must stay quiet" —
+each one corresponding to a false positive that actually happened.
+
+Release notes have shipped in three shapes and the parser reads all three (a format
+change is exactly what silently breaks the per-section noise control):
+
+| Version | Shape | Example |
+| --- | --- | --- |
+| ~0.1.6 | markdown headings | `### 体验优化` / `### 问题修复` |
+| **0.1.7-rc.2+** | emoji headings + **bare label lines** | `### 🐛 修复` / `### ⚠️ 调整`, and the first `✨ 新增` has no `#` at all |
+| 0.1.3 and older | HTML headings across two lines | `<h3>新增功能` + `</h3>` |
+
+After a new release appears, run `node research/capture-fixtures.mjs` and the suite
+again — a format change then fails loudly instead of quietly.
 
 **Each card can be hidden on its own**, so a growing back-log of releases does not
 pile up. Hiding only collapses the card — the facts (how many versions behind, the
@@ -163,6 +175,7 @@ node tests/host-smoke.mjs        # routes, same-origin guard, real network, disp
 node tests/resolve-check.mjs     # install location: profile link, bundles list, client path
 node tests/live-verify.mjs       # real HTTP against the RUNNING instance (capabilities, hide round trip, same-origin)
 node research/scan-shim-encoding.mjs  # BOM/mojibake in .cmd/.bat/.ps1 (the garbled first line at launch)
+node research/capture-fixtures.mjs --refresh  # re-capture real release bodies with the Host's cleaner
 ```
 
 ## Privacy

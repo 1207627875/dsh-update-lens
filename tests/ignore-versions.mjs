@@ -89,7 +89,15 @@ try {
   const status = check.json;
   const behind = Array.isArray(status.newerVersions) ? status.newerVersions : [];
   const visible = Array.isArray(status.notes) ? status.notes.map(note => note.version) : [];
-  assert(behind.length === visible.length, 'with nothing ignored, every newer version should have a card');
+  /**
+   * A real user may already have hidden cards. An earlier version of this test
+   * assumed a pristine state and failed against a perfectly healthy install, so
+   * every expectation below is expressed relative to what was already there.
+   */
+  const baseline = Array.isArray(status.ignoredVersions) ? status.ignoredVersions : [];
+  assert(behind.length === visible.length + baseline.length,
+    `cards = newer versions − already hidden (${behind.length} vs ${visible.length} + ${baseline.length})`);
+  assert(baseline.every(version => !visible.includes(version)), 'an already-hidden version must not have a visible card');
 
   // Cross-origin writes must still be refused on the new route.
   const hostile = fakeResponse();
@@ -106,7 +114,9 @@ try {
   if (behind.length === 0) {
     console.log('note: this install is up to date, so the hide/restore round trip has no version to exercise');
   } else {
-    const victim = behind[0];
+    // Pick a version that is currently visible, so the round trip is meaningful
+    // even when the user has already hidden some of them.
+    const victim = behind.find(version => !baseline.includes(version)) ?? behind[0];
     const ignored = await call('/ignore', 'POST', { version: victim, ignored: true });
     assert(ignored.status === 200, `POST /ignore returned ${ignored.status}`);
     const after = ignored.json.status;
@@ -138,7 +148,11 @@ try {
     const all = await call('/ignore', 'POST', { restoreAll: true });
     assert(all.status === 200, `restoreAll returned ${all.status}`);
     assert(all.json.config.ignoredVersions.length === 0, 'restoreAll must empty the list');
-    assert(all.json.status.notes.length === visible.length, 'restoreAll must bring every card back');
+    // The invariant is "everything is visible again", independent of what the
+    // user had hidden before this test ran.
+    assert(all.json.status.notes.length === behind.length,
+      `restoreAll must show every newer version (${all.json.status.notes.length} of ${behind.length})`);
+    assert(all.json.status.notes.some(note => note.version === victim), 'the restored version must be back among the cards');
 
     // Input handling: a non-array is rejected, junk inside an array is dropped.
     const notAnArray = await call('/config', 'POST', { ignoredVersions: 'nope' });

@@ -30,7 +30,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { annotateRelease } from './notes.js';
+import { annotateRelease, splitReleaseBody } from './notes.js';
 
 export const name = 'dsh-update-lens';
 /** The route table needs the web carrier; without it this plugin has nothing to serve. */
@@ -427,24 +427,9 @@ function readReleasePayload(body) {
 }
 
 /** The release body is bilingual with `<h3 id="cn-…">` / `<h3 id="en-…">` markers. */
-function splitReleaseBody(body) {
-  if (typeof body !== 'string' || body === '') return { cn: '', en: '' };
-  const marker = body.search(/<h3 id="en-/);
-  const cn = marker >= 0 ? body.slice(0, marker) : body;
-  const en = marker >= 0 ? body.slice(marker) : '';
-  return { cn: cleanNotes(cn), en: cleanNotes(en) };
-}
+// cleanNotes/splitReleaseBody live in notes.js: the Host and the fixture capture
+// script each had their own copy, and the fixtures drifted onto the older one.
 
-function cleanNotes(text) {
-  return text
-    .split('\n')
-    .filter(line => !/^\[[^\]]*\]\(#/.test(line.trim()))
-    .join('\n')
-    .replace(/<h3 id="(?:cn|en)-[^"]*">/g, '')
-    .replace(/<\/h3>/g, '')
-    .trim()
-    .slice(0, 24_000);
-}
 
 async function probeGithub(base, policy) {
   const origin = (() => {

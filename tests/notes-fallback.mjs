@@ -100,13 +100,22 @@ try {
     assert(json.notesAvailable === true, 'notes must still be available when only the mirror works');
     assert(json.notesSourceId === 'ungh-cc', `the page must be told the bodies came from the mirror, got ${json.notesSourceId}`);
     assert(Array.isArray(json.newerVersions) && json.newerVersions.length > 0, 'expected newer versions to compare against');
-    assert(json.notes.length === json.newerVersions.length, 'every newer version should have a note from the mirror');
+    // Cards = newer versions minus whatever this user already hid, so the test
+    // holds on a real install instead of only on a pristine one.
+    const hidden = Array.isArray(json.ignoredVersions) ? json.ignoredVersions : [];
+    const expected = json.newerVersions.filter(version => !hidden.includes(version));
+    assert(json.notes.length === expected.length,
+      `every visible newer version should have a note from the mirror (${json.notes.length} of ${expected.length}, ${hidden.length} hidden)`);
 
     const withBody = json.notes.filter(note => typeof note.cn === 'string' && note.cn.length > 100);
     assert(withBody.length > 0, 'mirror bodies should be non-trivial');
     if (withBody.length > 0) {
       const note = withBody[0];
-      assert(/新增功能|体验优化|问题修复|其他变更/.test(note.cn), `mirror body should carry the Chinese sections, got: ${note.cn.slice(0, 60)}`);
+      // Section LABELS differ per release ("新增功能", "✨ 新增", "🐛 修复"…), so
+      // assert the structure — headings plus bullets — rather than today's wording.
+      const bullets = String(note.cn).split('\n').filter(line => /^[-*] /.test(line.trim()));
+      assert(bullets.length >= 3, `mirror body should carry bullet lines, got ${bullets.length}`);
+      assert(note.cnBlocks.some(block => block.kind === 'heading'), 'mirror body should be sectioned by the annotator');
       assert(typeof note.en === 'string' && note.en.length > 100, 'mirror body should carry the English block too');
       assert(Array.isArray(note.cnBlocks) && note.cnBlocks.length > 0, 'mirror bodies must run through the same annotator');
       assert(typeof note.summary?.breaking === 'number', 'mirror bodies must produce an annotation summary');

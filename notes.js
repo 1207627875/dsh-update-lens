@@ -41,9 +41,38 @@ const INTERFACE_EN = ['api', 'slot', 'interface', 'protocol', 'field', 'paramete
 const MOVE_CN = ['变化', '变更', '调整', '改为', '改名', '重命名', '不再', '移除', '删除', '拆分', '合并', '统一'];
 const MOVE_EN = ['change', 'adjust', 'renam', 'no longer', 'remov', 'delet', 'split', 'merg', 'unif'];
 
-const FIX_SECTION = /问题修复|缺陷|Bug Fixes|Fixes|Fixed/i;
-/** Additions and polish describe what improved; only a top-tier phrase belongs there. */
-const ADD_SECTION = /新增功能|新功能|体验优化|改进|优化|New Features|New feature|Improvements|Improvement/i;
+/**
+ * Section classification.
+ *
+ * Release notes have shipped in three shapes so far, and the rules must survive
+ * all of them:
+ *   - 0.1.5 / 0.1.6 : `### 体验优化` / `### 问题修复` / `### 其他变更`
+ *   - 0.1.7-rc.2+   : `### 🐛 修复` / `### ⚠️ 调整` / `### 🎨 优化`, and the first
+ *                     section is a BARE label line (`✨ 新增`) with no `#` at all
+ *   - 0.1.3 / older : no headings whatsoever
+ *
+ * A section counts as benign only when it describes ADDITIONS or FIXES — that is
+ * where a stray 删除/移除 is prose ("纯删除的差异展示"). `调整` / `变更` / `其他`
+ * are exactly where real breakage hides ("原独立模式选择开关移除"), so they keep
+ * the full rules.
+ */
+const FIX_SECTION = /修复|缺陷|Bug ?Fixes?|Fixes|Fixed/i;
+const ADD_SECTION = /新增|新功能|特性|优化|改进|体验|Features?|Improvements?/i;
+/** Words that mark a bullet-less short line as a section label rather than a sentence. */
+const SECTION_WORDS = /新增|新功能|特性|修复|缺陷|优化|改进|体验|调整|变更|其他|说明|已知|注意|New|Features?|Fixes?|Fixed|Improvements?|Changes?|Chores|Known|Breaking/i;
+
+/**
+ * 0.1.7 labels its sections with no markdown marker at all — a short, bullet-less
+ * line naming the section. Missing those silently drops the section context, which
+ * is precisely what the noise control depends on.
+ */
+function looksLikeSectionLabel(line) {
+  if (line.startsWith('- ') || line.startsWith('* ')) return false;
+  if (line.length === 0 || line.length > 40) return false;
+  if (/[。．.!！?？；;：:]$/.test(line)) return false;
+  return SECTION_WORDS.test(line);
+}
+
 /** "可在设置中调整" — user-controllable, so a plain move verb is not a warning. */
 const OPTIONAL = /可在设置|可在配置|可通过配置|可通过设置|可自行|可手动关闭|可手动开启|可关闭|configurable|optional/i;
 /** A removal word here continues a list of supported actions ("…、删除、…"). */
@@ -77,6 +106,9 @@ function removalIsHeadline(text, word, locale) {
   const before = text.slice(0, at);
   if ((locale === 'en' ? SUPPORT_BEFORE_EN : SUPPORT_BEFORE_CN).test(before)) return false;
   if (at < 16) return true;
+  // A removal that ENDS its clause is the point of the bullet ("…开关移除，新任务会…"),
+  // while one followed by more words usually modifies them ("删除后可重建").
+  if (/^[a-z]{0,3}[、，。；：,.;:]/.test(text.slice(at + word.length))) return true;
   return (locale === 'en' ? COMPANION_EN : COMPANION_CN).some(mark => text.includes(mark));
 }
 
@@ -90,7 +122,15 @@ export function classifyLine(text, locale, section = '') {
 
   const sectionIsBenign = FIX_SECTION.test(section) || ADD_SECTION.test(section);
   if (sectionIsBenign) {
-    return top.length > 0 ? { level: 'breaking', words: top } : { level: null, words: [] };
+    if (top.length === 0) return { level: null, words: [] };
+    // "不兼容插件的跳过提示…" names a category; "旧名称不再兼容" announces a break.
+    // In a section about additions and fixes only the second is a finding, and
+    // even then it is only a caution until a change verb confirms it.
+    const moveWords = locale === 'en' ? MOVE_EN : MOVE_CN;
+    const soft = top.filter(word => /^(不兼容|incompatible)$/.test(word) && !moveWords.some(move => haystack.includes(move)));
+    const hard = top.filter(word => !soft.includes(word));
+    if (hard.length > 0) return { level: 'breaking', words: hard };
+    return { level: 'caution', words: soft };
   }
 
   const removalWords = locale === 'en' ? ['remov', 'delet'] : ['移除', '删除'];
@@ -130,6 +170,12 @@ export function annotateText(text, locale = 'cn') {
       blocks.push({ kind: 'heading', text: section, level: null, words: [] });
       continue;
     }
+    // 0.1.7 labels its sections with a bare line instead of a markdown heading.
+    if (looksLikeSectionLabel(line)) {
+      section = line;
+      blocks.push({ kind: 'heading', text: section, level: null, words: [] });
+      continue;
+    }
     const bullet = line.startsWith('- ') || line.startsWith('* ');
     const body = bullet ? line.slice(2) : line;
     if (bullet) summary.items += 1;
@@ -160,4 +206,38 @@ export function annotateRelease(cn, en) {
       items: Math.max(cnResult.summary.items, enResult.summary.items),
     },
   };
+}
+
+/**
+ * Strip the scaffolding a release body arrives with.
+ *
+ * Three formats have shipped: 0.1.6+ uses `<h3 id="cn-…">新增功能</h3>`, 0.1.3 uses
+ * a plain `<h3>新增功能` / `</h3>` pair split across two lines, and 0.1.7-rc.2 uses
+ * bare labels. Any heading tag must go, or its text leaks into the section name.
+ *
+ * This lives here — not in the Host and not in the capture script — because those
+ * two once held two copies of it, and the fixtures ended up cleaned by the older
+ * one. One implementation, imported by the Host and by research/capture-fixtures.mjs.
+ */
+export function cleanNotes(text) {
+  return String(text ?? '')
+    .split('\n')
+    // The nav line ("[中文](#cn-…) | [English](#en-…)") and the per-language title
+    // rows ("0.1.3-alpha.2 · 中文") are scaffolding, not release content.
+    .filter(line => !/^\[[^\]]*\]\(#/.test(line.trim()))
+    .filter(line => !/^\d+\.\d+\.\d+\S*\s*·\s*(中文|English)\s*$/.test(line.trim()))
+    .join('\n')
+    .replace(/<h[1-6][^>]*>/g, '')
+    .replace(/<\/h[1-6]>/g, '')
+    .trim()
+    .slice(0, 24_000);
+}
+
+/** The release body is bilingual with `<h3 id="cn-…">` / `<h3 id="en-…">` markers. */
+export function splitReleaseBody(body) {
+  if (typeof body !== 'string' || body === '') return { cn: '', en: '' };
+  const marker = body.search(/<h3 id="en-/);
+  const cn = marker >= 0 ? body.slice(0, marker) : body;
+  const en = marker >= 0 ? body.slice(marker) : '';
+  return { cn: cleanNotes(cn), en: cleanNotes(en) };
 }
