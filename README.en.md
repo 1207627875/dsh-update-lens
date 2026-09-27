@@ -89,7 +89,7 @@ Install the DeepSeek Harness (dsh) plugin dsh-update-lens:
    returns and current.version equals my dsh version
 ```
 
-Requires dsh `>= 0.1.6-alpha.2` (the only version this was tested on) and Node `>= 20`.
+Requires dsh `>= 0.1.6-alpha.2` (verified on `0.1.6-alpha.2` and `0.1.7-rc.2`, including the `_versions\` version-manager layout) and Node `>= 20`.
 
 ## Sources and network
 
@@ -161,6 +161,8 @@ node tests/proxy-path.mjs        # direct / dead-proxy / live-proxy behaviour
 node tests/host-runtime.mjs      # INVARIANTS of version detection (no hardcoded versions; skips offline)
 node tests/host-smoke.mjs        # routes, same-origin guard, real network, disposal
 node tests/resolve-check.mjs     # install location: profile link, bundles list, client path
+node tests/live-verify.mjs       # real HTTP against the RUNNING instance (capabilities, hide round trip, same-origin)
+node research/scan-shim-encoding.mjs  # BOM/mojibake in .cmd/.bat/.ps1 (the garbled first line at launch)
 ```
 
 ## Privacy

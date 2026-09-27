@@ -72,7 +72,7 @@ dsh plugin --profile web add github:1207627875/dsh-update-lens
 3. 重启该 profile，然后 GET http://127.0.0.1:3080/dsh-update-lens/status，确认返回 JSON 且 current.version 是我的 dsh 版本
 ```
 
-要求：dsh `>= 0.1.6-alpha.2`（本插件只在这个版本上实测过），Node `>= 20`。
+要求：dsh `>= 0.1.6-alpha.2`（已在 `0.1.6-alpha.2` 与 `0.1.7-rc.2` 上实测，含 `_versions\` 版本管理器布局），Node `>= 20`。
 
 ## 数据源与网络
 
@@ -138,6 +138,8 @@ node tests/host-smoke.mjs        # 路由表、同源防护、真实网络、卸
 node tests/resolve-check.mjs     # 安装位置自检：profile 链接、bundles 列表、客户端 bundle 路径
 node tests/net-probe.mjs         # npm / GitHub 可达性
 node tests/mirror-probe.mjs      # GitHub 镜像可达性
+node tests/live-verify.mjs       # 对【运行中的实例】发真实 HTTP 请求（能力声明 / 忽略往返 / 同源防护）
+node research/scan-shim-encoding.mjs  # 扫 .cmd/.bat/.ps1 的 BOM 与乱码（启动首行报错就是它）
 ```
 
 ## 隐私
@@ -186,6 +188,11 @@ git config --local http.proxy http://127.0.0.1:7890    # 换成你自己的代�
 
 **浏览器打开 GitHub 显示「访问暂时受限」？** 那是 GitHub 对**出口 IP** 的防滥用拦截
 （页面会写明是哪个 IP）。换一个代理节点，或等它自行解除。
+
+**启动时看到 `锘緼ECHO off` 之类的乱码？** 那不是源码编码事故，而是某个 `.cmd` 启动脚本带了 UTF-8 BOM：
+`cmd.exe` 按 ANSI 读，`EF BB BF 40`（BOM + `@`）就变成 `锘緼`。效果只是首行报一句「不是内部或外部命令」，脚本随后照常运行。
+用 `node research/scan-shim-encoding.mjs` 定位，去掉开头 3 个字节即可。注意 **`.ps1` 带 BOM 是对的**（PowerShell 5.1 没有 BOM 会按 ANSI 读），别一起删掉。
+`npm i -g` 重新生成 shim 时可能又带回 BOM。
 
 **装完看不到「更新中心」？** Host 侧代码需要**重启 profile** 才会加载；客户端改动刷新页面即可。
 可以先 `curl http://127.0.0.1:3080/dsh-update-lens/status` 确认 Host 侧是否已起。
